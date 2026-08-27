@@ -82,7 +82,7 @@ class Dashboard(tk.Tk):
 
         tk.Label(header, text="Student Dropout Risk Dashboard", bg=LIME_GREEN, fg=WHITE,
                   font=("Segoe UI", 16, "bold")).pack(side="left", padx=20, pady=15)
-        tk.Label(header, text="XGBoost (from scratch)  |  Josephine Morudu",
+        tk.Label(header, text="XGBoost",
                   bg=LIME_GREEN, fg=WHITE, font=("Segoe UI", 9)).pack(side="right", padx=20)
 
     def _build_actions(self):
@@ -119,10 +119,13 @@ class Dashboard(tk.Tk):
 
         columns = ("student", "predicted_outcome", "dropout_probability", "at_risk")
         self.tree = ttk.Treeview(frame, columns=columns, show="headings", height=8)
-        for col, label in zip(columns, ("Student", "Predicted Outcome", "Dropout Probability", "At Risk")):
+        for col, label in zip(columns, ("Student ID", "Predicted Outcome", "Dropout Probability", "At Risk")):
             self.tree.heading(col, text=label)
             self.tree.column(col, anchor="center")
-        self.tree.pack(fill="both", expand=True)
+        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=scrollbar.set)
+        self.tree.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
 
     def on_train(self):
         data_path = os.path.join(BASE_DIR, DATA_PATH)
@@ -146,12 +149,37 @@ class Dashboard(tk.Tk):
             pipeline = Pipeline(students, output_dir=output_dir)
             pipeline.run()
 
-            self.after(0, self.status_var.set, "Training complete.")
+            # Populate table from saved predictions CSV
+            predictions_csv = os.path.join(output_dir, "predictions.csv")
+            if os.path.exists(predictions_csv):
+                results = self._read_predictions_csv(predictions_csv)
+                self.after(200, self._populate_results_from_csv, results)
+
+            self.after(200, self.status_var.set, "Training complete.")
         except Exception as exc:
             self.after(0, messagebox.showerror, "Training failed", str(exc))
             self.after(0, self.status_var.set, "Training failed.")
         finally:
             sys.stdout = old_stdout
+
+    def _read_predictions_csv(self, path):
+        import csv
+        results = []
+        with open(path, newline="", encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                results.append(row)
+        return results
+
+    def _populate_results_from_csv(self, results):
+        self.tree.delete(*self.tree.get_children())
+        for r in results:
+            self.tree.insert("", "end", values=(
+                r.get("student_id", ""),
+                r.get("predicted_outcome", ""),
+                f"{float(r.get('dropout_probability', 0)):.4f}",
+                "Yes" if r.get("at_risk", "").lower() == "true" else "No",
+            ))
+        self.tree.update_idletasks()
 
     def on_predict(self):
         if not os.path.exists(MODEL_PATH):
