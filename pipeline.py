@@ -6,7 +6,7 @@ import random
 
 from config import (
     RANDOM_SEED, TEST_SIZE, TARGET_CLASSES,
-    MIN_ACCURACY, MIN_DROPOUT_RECALL
+    MIN_ACCURACY, MIN_DROPOUT_RECALL, N_FOLDS, XGBOOST_PARAMS
 )
 from models.encoded_feature_matrix import EncodedFeatureMatrix
 from models.smote_sampler import SMOTESampler
@@ -154,41 +154,25 @@ class Pipeline:
         """Hyperparameter tuning and final model training."""
         print("\n[STAGE 3] XGBoost Hyperparameter Tuning and Training")
 
-        # Reduced grid for efficiency
         print("  Running hyperparameter grid search...")
-        small_grid = {
-            "n_estimators": [20, 30],
-            "max_depth": [3, 4],
-            "learning_rate": [0.1, 0.3],
-        }
-
         search_model = XGBoostClassifier(random_seed=RANDOM_SEED)
         best_params, best_score = search_model.tune_hyperparameters(
-            self.train_X, self.train_y, small_grid, n_folds=3
+            self.train_X, self.train_y, XGBOOST_PARAMS, n_folds=N_FOLDS
         )
         print(f"  Best params: {best_params}")
         print(f"  Best CV accuracy: {best_score:.4f}")
 
-        # Subsample for efficiency
         print("\n  Training final model with best parameters...")
-        max_train = 2000
-        if len(self.train_X) > max_train:
-            train_rng = random.Random(RANDOM_SEED)
-            indices = train_rng.sample(range(len(self.train_X)), max_train)
-            final_X = [self.train_X[i] for i in indices]
-            final_y = [self.train_y[i] for i in indices]
-        else:
-            final_X = self.train_X
-            final_y = self.train_y
-
         self.model = XGBoostClassifier(
-            n_estimators=best_params.get("n_estimators", 30),
-            max_depth=best_params.get("max_depth", 4),
+            n_estimators=best_params.get("n_estimators", 100),
+            max_depth=best_params.get("max_depth", 5),
             learning_rate=best_params.get("learning_rate", 0.1),
+            min_samples_split=best_params.get("min_samples_split", 2),
+            subsample=best_params.get("subsample", 0.8),
             random_seed=RANDOM_SEED
         )
-        self.model.train(final_X, final_y)
-        print(f"  Model training complete ({len(final_X)} samples used).")
+        self.model.train(self.train_X, self.train_y)
+        print(f"  Model training complete ({len(self.train_X)} samples used.)")
 
     def _stage_4_predict_and_evaluate(self):
         """Predict on the held-out test set and compute performance metrics."""

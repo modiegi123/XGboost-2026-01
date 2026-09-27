@@ -50,13 +50,15 @@ class Dashboard(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Student Dropout Risk Dashboard")
-        self.geometry("900x620")
+        self.geometry("900x950")
         self.configure(bg=WHITE)
 
         self._build_style()
         self._build_header()
         self._build_actions()
         self._build_log()
+        self._build_metrics_panel()
+        self._build_confusion_matrix()
         self._build_results_table()
 
     def _build_style(self):
@@ -94,6 +96,9 @@ class Dashboard(tk.Tk):
         ttk.Button(bar, text="Predict from CSV...", style="Lime.TButton",
                    command=self.on_predict).pack(side="left")
 
+        self.progress = ttk.Progressbar(bar, mode="indeterminate", length=150)
+        self.progress.pack(side="right", padx=(10, 0))
+
         self.status_var = tk.StringVar(value="Ready.")
         tk.Label(bar, textvariable=self.status_var, bg=WHITE, fg=LIME_GREEN_DARK,
                   font=("Segoe UI", 10, "bold")).pack(side="right")
@@ -111,6 +116,55 @@ class Dashboard(tk.Tk):
         self.log_text.configure(yscrollcommand=scrollbar.set)
         self.log_text.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
+
+    def _build_metrics_panel(self):
+        frame = tk.LabelFrame(self, text="Model Performance", bg=WHITE, fg=LIME_GREEN_DARK,
+                               font=("Segoe UI", 10, "bold"), bd=2, labelanchor="nw")
+        frame.pack(fill="x", padx=20, pady=(0, 10))
+
+        self._metric_vars = {}
+        for col, label in enumerate(("Accuracy", "AUC-ROC", "Dropout Recall", "Dropout F1")):
+            tk.Label(frame, text=label, bg=WHITE, fg=TEXT_DARK,
+                     font=("Segoe UI", 9, "bold")).grid(row=0, column=col, padx=20, pady=(6, 2))
+            var = tk.StringVar(value="—")
+            self._metric_vars[label] = var
+            tk.Label(frame, textvariable=var, bg=WHITE, fg=LIME_GREEN_DARK,
+                     font=("Segoe UI", 13, "bold")).grid(row=1, column=col, padx=20, pady=(0, 8))
+
+    def _build_confusion_matrix(self):
+        frame = tk.LabelFrame(self, text="Confusion Matrix", bg=WHITE, fg=LIME_GREEN_DARK,
+                               font=("Segoe UI", 10, "bold"), bd=2, labelanchor="nw")
+        frame.pack(fill="x", padx=20, pady=(0, 10))
+        self._cm_frame = frame
+        self._cm_labels = {}  # populated after training
+
+    def _populate_metrics(self, metrics):
+        m = metrics
+        self._metric_vars["Accuracy"].set(f"{m.accuracy:.4f}")
+        self._metric_vars["AUC-ROC"].set(f"{m.auc_roc:.4f}")
+        self._metric_vars["Dropout Recall"].set(f"{m.get_dropout_recall():.4f}")
+        self._metric_vars["Dropout F1"].set(f"{m.f1_per_class.get('Dropout', 0):.4f}")
+
+        # Clear and rebuild confusion matrix grid
+        for w in self._cm_frame.winfo_children():
+            w.destroy()
+
+        classes = m.classes
+        # Header row
+        tk.Label(self._cm_frame, text="Actual \ Pred", bg=WHITE, fg=TEXT_DARK,
+                 font=("Segoe UI", 9, "bold")).grid(row=0, column=0, padx=8, pady=4)
+        for j, cls in enumerate(classes):
+            tk.Label(self._cm_frame, text=cls, bg=LIME_GREEN, fg=WHITE,
+                     font=("Segoe UI", 9, "bold"), width=10).grid(row=0, column=j+1, padx=2, pady=4)
+        for i, actual in enumerate(classes):
+            tk.Label(self._cm_frame, text=actual, bg=LIME_GREEN, fg=WHITE,
+                     font=("Segoe UI", 9, "bold"), width=12).grid(row=i+1, column=0, padx=2, pady=2)
+            for j, pred in enumerate(classes):
+                val = m.confusion_matrix.get((actual, pred), 0)
+                bg = LIME_GREEN_DARK if actual == pred else WHITE
+                fg = WHITE if actual == pred else TEXT_DARK
+                tk.Label(self._cm_frame, text=str(val), bg=bg, fg=fg,
+                         font=("Segoe UI", 10), width=10, relief="groove").grid(row=i+1, column=j+1, padx=2, pady=2)
 
     def _build_results_table(self):
         frame = tk.LabelFrame(self, text="Predictions", bg=WHITE, fg=LIME_GREEN_DARK,
@@ -133,6 +187,7 @@ class Dashboard(tk.Tk):
             messagebox.showerror("Dataset not found", f"No dataset at:\n{data_path}")
             return
         self.status_var.set("Training...")
+        self.progress.start(10)
         threading.Thread(target=self._run_training, args=(data_path,), daemon=True).start()
 
     def _run_training(self, data_path):
@@ -155,7 +210,9 @@ class Dashboard(tk.Tk):
                 results = self._read_predictions_csv(predictions_csv)
                 self.after(200, self._populate_results_from_csv, results)
 
+            self.after(200, self._populate_metrics, pipeline.metrics)
             self.after(200, self.status_var.set, "Training complete.")
+            self.after(200, self.progress.stop)
         except Exception as exc:
             self.after(0, messagebox.showerror, "Training failed", str(exc))
             self.after(0, self.status_var.set, "Training failed.")

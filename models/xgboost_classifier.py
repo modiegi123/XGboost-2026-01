@@ -16,7 +16,7 @@ class DecisionNode:
         self.value = value  # Leaf value (prediction)
 
     def is_leaf(self):
-        return self.value is not None
+        return self.value is not None # tell you which kind of node you dealing with
 
 
 class DecisionTree:
@@ -27,8 +27,8 @@ class DecisionTree:
         self.random_seed = random_seed
         self.root = None
 
-    def _compute_leaf_value(self, gradients, hessians, lambda_reg=1.0):
-        return -sum(gradients) / (sum(hessians) + lambda_reg)
+    def _compute_leaf_value(self, gradients, second_order_gradients, lambda_reg=1.0):
+        return -sum(gradients) / (sum(second_order_gradients) + lambda_reg)
 
     def _compute_gain(self, left_g, left_h, right_g, right_h, lambda_reg=1.0):
         left_score = (left_g ** 2) / (left_h + lambda_reg)
@@ -36,7 +36,7 @@ class DecisionTree:
         total_score = ((left_g + right_g) ** 2) / (left_h + right_h + lambda_reg)
         return 0.5 * (left_score + right_score - total_score)
 
-    def _find_best_split(self, X, gradients, hessians, lambda_reg=1.0):
+    def _find_best_split(self, X, gradients, second_order_gradients, lambda_reg=1.0):
         n_samples = len(X)
         n_features = len(X[0]) if X else 0
         best_gain = 0.0
@@ -44,15 +44,15 @@ class DecisionTree:
         best_threshold = None
 
         total_g = sum(gradients)
-        total_h = sum(hessians)
+        total_h = sum(second_order_gradients)
 
         for feature_idx in range(n_features):
             values = sorted(set(X[i][feature_idx] for i in range(n_samples)))
             if len(values) <= 1:
                 continue
 
-            # Use quantile-based thresholds (max 5 per feature) for efficiency
-            n_thresholds = min(len(values) - 1, 5)
+            # Use quantile-based thresholds (max 10 per feature) for better split quality
+            n_thresholds = min(len(values) - 1, 10)
             step = max(1, (len(values) - 1) // n_thresholds)
             thresholds = []
             for idx in range(0, len(values) - 1, step):
@@ -68,10 +68,10 @@ class DecisionTree:
                 for i in range(n_samples):
                     if X[i][feature_idx] <= threshold:
                         left_g += gradients[i]
-                        left_h += hessians[i]
+                        left_h += second_order_gradients[i]
                     else:
                         right_g += gradients[i]
-                        right_h += hessians[i]
+                        right_h += second_order_gradients[i]
 
                 if left_h == 0 or right_h == 0:
                     continue
@@ -84,18 +84,18 @@ class DecisionTree:
 
         return best_feature, best_threshold, best_gain
 
-    def _build_tree(self, X, gradients, hessians, depth, lambda_reg=1.0):
+    def _build_tree(self, X, gradients, second_order_gradients, depth, lambda_reg=1.0):
         n_samples = len(X)
 
         if depth >= self.max_depth or n_samples < self.min_samples_split:
-            leaf_value = self._compute_leaf_value(gradients, hessians, lambda_reg)
+            leaf_value = self._compute_leaf_value(gradients, second_order_gradients, lambda_reg)
             return DecisionNode(value=leaf_value)
 
         feature_idx, threshold, gain = self._find_best_split(
-            X, gradients, hessians, lambda_reg)
+            X, gradients, second_order_gradients, lambda_reg)
 
         if feature_idx is None or gain <= 0:
-            leaf_value = self._compute_leaf_value(gradients, hessians, lambda_reg)
+            leaf_value = self._compute_leaf_value(gradients, second_order_gradients, lambda_reg)
             return DecisionNode(value=leaf_value)
 
         left_X, left_g, left_h = [], [], []
@@ -105,14 +105,14 @@ class DecisionTree:
             if X[i][feature_idx] <= threshold:
                 left_X.append(X[i])
                 left_g.append(gradients[i])
-                left_h.append(hessians[i])
+                left_h.append(second_order_gradients[i])
             else:
                 right_X.append(X[i])
                 right_g.append(gradients[i])
-                right_h.append(hessians[i])
+                right_h.append(second_order_gradients[i])
 
         if not left_X or not right_X:
-            leaf_value = self._compute_leaf_value(gradients, hessians, lambda_reg)
+            leaf_value = self._compute_leaf_value(gradients, second_order_gradients, lambda_reg)
             return DecisionNode(value=leaf_value)
 
         left_node = self._build_tree(left_X, left_g, left_h, depth + 1, lambda_reg)
@@ -125,8 +125,8 @@ class DecisionTree:
             right=right_node
         )
 
-    def fit(self, X, gradients, hessians, lambda_reg=1.0):
-        self.root = self._build_tree(X, gradients, hessians, 0, lambda_reg)
+    def fit(self, X, gradients, second_order_gradients, lambda_reg=1.0):
+        self.root = self._build_tree(X, gradients, second_order_gradients, 0, lambda_reg)
 
     def predict_single(self, x):
         node = self.root
@@ -164,17 +164,17 @@ class XGBoostClassifier:
         exp_scores = [math.exp(s - max_score) for s in raw_scores]
         total = sum(exp_scores)
         return [e / total for e in exp_scores]
- #Computes how wrong the model is for each sample
-    def _compute_gradients_hessians(self, y_true_onehot, probabilities):
+ #Computes how wrong the model is for each sample  // not used
+    def _compute_gradients_second_order_gradients(self, y_true_onehot, probabilities):
         gradients = []
-        hessians = []
+        second_order_gradients = []
         for i in range(len(y_true_onehot)):
             g = probabilities[i] - y_true_onehot[i]
             h = probabilities[i] * (1 - probabilities[i])
-            h = max(h, 1e-6)  # Avoid zero hessian
+            h = max(h, 1e-6)
             gradients.append(g)
-            hessians.append(h)
-        return gradients, hessians
+            second_order_gradients.append(h)
+        return gradients, second_order_gradients
 
     def train(self, X, y):
         """Train the gradient boosted model."""
@@ -199,24 +199,24 @@ class XGBoostClassifier:
 
             for k in range(self.n_classes):
                 gradients = []
-                hessians = []
+                second_order_gradients = []
                 for i in range(n_samples):
                     g = probabilities[i][k] - y_onehot[i][k]
                     h = probabilities[i][k] * (1 - probabilities[i][k])
                     h = max(h, 1e-6)
                     gradients.append(g)
-                    hessians.append(h)
+                    second_order_gradients.append(h)
 
                 if self.subsample < 1.0:
                     n_sub = max(1, int(n_samples * self.subsample))
                     indices = rng.sample(range(n_samples), n_sub)
                     X_sub = [X[i] for i in indices]
                     g_sub = [gradients[i] for i in indices]
-                    h_sub = [hessians[i] for i in indices]
+                    h_sub = [second_order_gradients[i] for i in indices]
                 else:
                     X_sub = X
                     g_sub = gradients
-                    h_sub = hessians
+                    h_sub = second_order_gradients
 
                 tree = DecisionTree(
                     max_depth=self.max_depth,
@@ -292,12 +292,12 @@ class XGBoostClassifier:
             return combos
 
         combinations = generate_combinations(param_values)
-        if len(combinations) > 8:
+        if len(combinations) > 16:
             rng.shuffle(combinations)
-            combinations = combinations[:8]
+            combinations = combinations[:16]
 
-        # Subsample for faster CV
-        max_cv_samples = 500
+        # Subsample for faster CV ,Preparing the data for cross-validation
+        max_cv_samples = 1500
         if len(X) > max_cv_samples:
             indices = rng.sample(range(len(X)), max_cv_samples)
             X_cv = [X[i] for i in indices]
@@ -349,6 +349,7 @@ class XGBoostClassifier:
             if label not in class_indices:
                 class_indices[label] = []
             class_indices[label].append(i)
+            
 
         folds = [0] * len(y)
         for label, indices in class_indices.items():
