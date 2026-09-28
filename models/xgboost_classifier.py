@@ -1,7 +1,6 @@
 
 import math
 import random
-from copy import deepcopy
 
 #Modiegi
 class DecisionNode:
@@ -164,17 +163,6 @@ class XGBoostClassifier:
         exp_scores = [math.exp(s - max_score) for s in raw_scores]
         total = sum(exp_scores)
         return [e / total for e in exp_scores]
- #Computes how wrong the model is for each sample  // not used
-    def _compute_gradients_second_order_gradients(self, y_true_onehot, probabilities):
-        gradients = []
-        second_order_gradients = []
-        for i in range(len(y_true_onehot)):
-            g = probabilities[i] - y_true_onehot[i]
-            h = probabilities[i] * (1 - probabilities[i])
-            h = max(h, 1e-6)
-            gradients.append(g)
-            second_order_gradients.append(h)
-        return gradients, second_order_gradients
 
     def train(self, X, y):
         """Train the gradient boosted model."""

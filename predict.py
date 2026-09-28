@@ -19,6 +19,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from config import TARGET_CLASSES
 
 MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output", "model.pkl")
+MODEL_ENROLLMENT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output", "model_enrollment.pkl")
+MODEL_SEMESTER1_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output", "model_semester1.pkl")
 
 
 class _FeatureRow:
@@ -29,12 +31,18 @@ class _FeatureRow:
         self.student_id = student_id
 
 
-def load_artifacts():
-    if not os.path.exists(MODEL_PATH):
-        print(f"ERROR: No trained model found at {MODEL_PATH}")
-        print("Run `python main.py` first to train and save the model.")
+def load_artifacts(mode="full"):
+    paths = {
+        "full": MODEL_PATH,
+        "enrollment": MODEL_ENROLLMENT_PATH,
+        "semester1": MODEL_SEMESTER1_PATH,
+    }
+    path = paths[mode]
+    if not os.path.exists(path):
+        print(f"ERROR: No trained model found at {path}")
+        print("Run `python main.py` first — all three models are built automatically.")
         sys.exit(1)
-    with open(MODEL_PATH, "rb") as f:
+    with open(path, "rb") as f:
         return pickle.load(f)
 
 
@@ -91,13 +99,16 @@ def main():
     parser.add_argument(
         "--input", required=True,
         help="Path to a CSV file with one row per student (same feature columns as the training dataset).")
+    parser.add_argument(
+        "--mode", choices=["full", "enrollment", "semester1"], default="full",
+        help="'full' uses all features (default). 'enrollment' uses only pre-enrollment features. 'semester1' uses enrollment + 1st semester features.")
     args = parser.parse_args()
 
     if not os.path.exists(args.input):
         print(f"ERROR: Input file not found: {args.input}")
         sys.exit(1)
 
-    artifacts = load_artifacts()
+    artifacts = load_artifacts(args.mode)
     feature_rows = read_students_csv(args.input)
 
     if not feature_rows:
@@ -107,7 +118,7 @@ def main():
     results = predict_students(feature_rows, artifacts)
 
     print("\n" + "=" * 70)
-    print("  DROPOUT RISK PREDICTIONS")
+    print(f"  DROPOUT RISK PREDICTIONS  [mode: {args.mode}]")
     print("=" * 70)
     for i, r in enumerate(results):
         print(f"\n  Student row {i + 1}:")

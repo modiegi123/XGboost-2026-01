@@ -8,7 +8,8 @@ from datetime import datetime
 
 from config import (
     RANDOM_SEED, TEST_SIZE, TARGET_CLASSES,
-    MIN_ACCURACY, MIN_DROPOUT_RECALL, N_FOLDS, XGBOOST_PARAMS
+    MIN_ACCURACY, MIN_DROPOUT_RECALL, N_FOLDS, XGBOOST_PARAMS,
+    ENROLLMENT_FEATURES, SEMESTER1_FEATURES
 )
 from models.encoded_feature_matrix import EncodedFeatureMatrix
 from models.smote_sampler import SMOTESampler
@@ -57,6 +58,8 @@ class Pipeline:
         self._save_predictions_csv()
         self._save_model_artifacts()
         self._log_experiment()
+        self._stage_6_enrollment_model()
+        self._stage_7_semester1_model()
 
         print("\n" + "=" * 70)
         print("  PIPELINE COMPLETE")
@@ -257,6 +260,122 @@ class Pipeline:
         with open(log_path, "w") as f:
             json.dump(existing, f, indent=2)
         print(f"  Experiment logged to: {log_path}")
+
+    def _stage_6_enrollment_model(self):
+        """Train and evaluate a second model using only enrollment-time features.
+        Saves output/model_enrollment.pkl alongside the full model."""
+        print("\n[STAGE 6] Enrollment-Time Early Detection Model")
+        print("  Training on features available before classes start...")
+
+        # Filter to only enrollment features that actually exist in the dataset
+        available = [f for f in ENROLLMENT_FEATURES if f in self.all_features]
+        print(f"  Enrollment features used: {len(available)}")
+
+        # Re-encode using only enrollment features
+        enrol_encoder = EncodedFeatureMatrix(random_seed=RANDOM_SEED)
+        enrol_train_X = enrol_encoder.fit_transform(
+            self.train_students, available,
+            categorical_features=[
+                f for f in available
+                if f in self.encoder._categorical_columns
+            ],
+            partition_label="train"
+        )
+        enrol_test_X = enrol_encoder.transform(
+            self.test_students, available, partition_label="test"
+        )
+
+        # Balance the enrollment training set
+        enrol_train_y_orig = [s.outcome for s in self.train_students]
+        smote = SMOTESampler(k_neighbours=5, random_seed=RANDOM_SEED)
+        enrol_train_X, enrol_train_y = smote.fit_resample(enrol_train_X, enrol_train_y_orig)
+
+        # Train with same best params as the full model
+        enrol_model = XGBoostClassifier(
+            n_estimators=self.model.n_estimators,
+            max_depth=self.model.max_depth,
+            learning_rate=self.model.learning_rate,
+            min_samples_split=self.model.min_samples_split,
+            subsample=self.model.subsample,
+            random_seed=RANDOM_SEED
+        )
+        enrol_model.train(enrol_train_X, enrol_train_y)
+
+        # Evaluate
+        enrol_preds = enrol_model.predict(enrol_test_X)
+        enrol_proba = enrol_model.predict_proba(enrol_test_X)
+        enrol_metrics = PerformanceMetrics(model_id="xgboost_enrollment")
+        enrol_metrics.compute(self.test_y, enrol_preds, enrol_proba, TARGET_CLASSES)
+        print(enrol_metrics.print_report())
+
+        dropout_recall = enrol_metrics.get_dropout_recall()
+        print(f"  Enrollment model dropout recall: {dropout_recall:.4f}")
+        print(f"  (Full model dropout recall:      {self.metrics.get_dropout_recall():.4f})")
+
+        # Save
+        model_path = os.path.join(self.output_dir, "model_enrollment.pkl")
+        with open(model_path, "wb") as f:
+            pickle.dump({
+                "model": enrol_model,
+                "encoder": enrol_encoder,
+                "all_features": available,
+            }, f)
+        print(f"  Enrollment model saved to: {model_path}")
+
+    def _stage_7_semester1_model(self):
+        """Train and evaluate a third model using enrollment features plus
+        1st semester academic performance. Saves output/model_semester1.pkl."""
+        print("\n[STAGE 7] Semester 1 Early Detection Model")
+        print("  Training on enrollment features + 1st semester results...")
+
+        available = [f for f in SEMESTER1_FEATURES if f in self.all_features]
+        print(f"  Semester 1 features used: {len(available)}")
+
+        sem1_encoder = EncodedFeatureMatrix(random_seed=RANDOM_SEED)
+        sem1_train_X = sem1_encoder.fit_transform(
+            self.train_students, available,
+            categorical_features=[
+                f for f in available
+                if f in self.encoder._categorical_columns
+            ],
+            partition_label="train"
+        )
+        sem1_test_X = sem1_encoder.transform(
+            self.test_students, available, partition_label="test"
+        )
+
+        sem1_train_y_orig = [s.outcome for s in self.train_students]
+        smote = SMOTESampler(k_neighbours=5, random_seed=RANDOM_SEED)
+        sem1_train_X, sem1_train_y = smote.fit_resample(sem1_train_X, sem1_train_y_orig)
+
+        sem1_model = XGBoostClassifier(
+            n_estimators=self.model.n_estimators,
+            max_depth=self.model.max_depth,
+            learning_rate=self.model.learning_rate,
+            min_samples_split=self.model.min_samples_split,
+            subsample=self.model.subsample,
+            random_seed=RANDOM_SEED
+        )
+        sem1_model.train(sem1_train_X, sem1_train_y)
+
+        sem1_preds = sem1_model.predict(sem1_test_X)
+        sem1_proba = sem1_model.predict_proba(sem1_test_X)
+        sem1_metrics = PerformanceMetrics(model_id="xgboost_semester1")
+        sem1_metrics.compute(self.test_y, sem1_preds, sem1_proba, TARGET_CLASSES)
+        print(sem1_metrics.print_report())
+
+        dropout_recall = sem1_metrics.get_dropout_recall()
+        print(f"  Semester 1 model dropout recall:  {dropout_recall:.4f}")
+        print(f"  (Full model dropout recall:        {self.metrics.get_dropout_recall():.4f})")
+
+        model_path = os.path.join(self.output_dir, "model_semester1.pkl")
+        with open(model_path, "wb") as f:
+            pickle.dump({
+                "model": sem1_model,
+                "encoder": sem1_encoder,
+                "all_features": available,
+            }, f)
+        print(f"  Semester 1 model saved to: {model_path}")
 
     def _save_model_artifacts(self):
         """Persist the trained model and encoder so predict.py can reuse them

@@ -43,3 +43,26 @@ ACADEMIC_FEATURES = [
 MACROECONOMIC_FEATURES = [
     "Unemployment rate", "Inflation rate", "GDP"
 ]
+
+# Features available at enrollment time (before any classes start).
+# Used by the early-detection enrollment model.
+ENROLLMENT_FEATURES = [
+    "Marital status", "Application mode", "Application order",
+    "Course", "Daytime/evening attendance", "Previous qualification",
+    "Nacionality", "Mother's qualification", "Father's qualification",
+    "Mother's occupation", "Father's occupation", "Displaced",
+    "Educational special needs", "Debtor", "Tuition fees up to date",
+    "Gender", "Scholarship holder", "Age at enrollment", "International",
+    "Unemployment rate", "Inflation rate", "GDP"
+]
+
+# Enrollment features plus 1st semester academic performance.
+# Used by the semester 1 early-detection model.
+SEMESTER1_FEATURES = ENROLLMENT_FEATURES + [
+    "Curricular units 1st sem (credited)",
+    "Curricular units 1st sem (enrolled)",
+    "Curricular units 1st sem (evaluations)",
+    "Curricular units 1st sem (approved)",
+    "Curricular units 1st sem (grade)",
+    "Curricular units 1st sem (without evaluations)",
+]

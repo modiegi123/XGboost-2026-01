@@ -57,16 +57,16 @@ class PerformanceMetrics:
     def _compute_auc_roc(self, y_true, y_proba):
         """Compute macro-averaged AUC-ROC (one-vs-rest)."""
         auc_scores = []
+        n_proba_classes = len(y_proba[0]) if y_proba else 0
         for cls_idx, cls in enumerate(self.classes):
-            # Binary: this class vs rest
+            if cls_idx >= n_proba_classes:
+                continue
             binary_true = [1 if t == cls else 0 for t in y_true]
             scores = [proba[cls_idx] for proba in y_proba]
-
             auc = self._auc_binary(binary_true, scores)
             self.auc_roc_per_class[cls] = auc
             auc_scores.append(auc)
 
-        # Macro-average AUC
         self.auc_roc = sum(auc_scores) / len(auc_scores) if auc_scores else 0.0
 
     def _auc_binary(self, y_true, scores):
