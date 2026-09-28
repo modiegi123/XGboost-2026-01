@@ -3,12 +3,12 @@
 RANDOM_SEED = 42
 DATA_PATH = "data/dataset.csv"
 TEST_SIZE = 0.2
-N_FOLDS = 5
+N_FOLDS = 3
 
 # Full hyperparameter space considered for the model.
 # The grid search in pipeline.py samples a reduced subset of this for speed.
 XGBOOST_PARAMS = {
-    "n_estimators": [50, 100, 150],
+    "n_estimators": [50, 100],
     "max_depth": [3, 5, 7],
     "learning_rate": [0.01, 0.1, 0.3],
     "min_samples_split": [2, 5, 10],

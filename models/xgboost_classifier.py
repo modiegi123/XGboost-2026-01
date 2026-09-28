@@ -292,12 +292,12 @@ class XGBoostClassifier:
             return combos
 
         combinations = generate_combinations(param_values)
-        if len(combinations) > 16:
+        if len(combinations) > 8:
             rng.shuffle(combinations)
-            combinations = combinations[:16]
+            combinations = combinations[:8]
 
         # Subsample for faster CV ,Preparing the data for cross-validation
-        max_cv_samples = 1500
+        max_cv_samples = 800
         if len(X) > max_cv_samples:
             indices = rng.sample(range(len(X)), max_cv_samples)
             X_cv = [X[i] for i in indices]

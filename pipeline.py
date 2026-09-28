@@ -1,8 +1,10 @@
 """End-to-end pipeline: load data, train a from-scratch XGBoost classifier,
 and predict which students are at risk of dropping out."""
 import os
+import json
 import pickle
 import random
+from datetime import datetime
 
 from config import (
     RANDOM_SEED, TEST_SIZE, TARGET_CLASSES,
@@ -54,6 +56,7 @@ class Pipeline:
         self._stage_5_feature_importance()
         self._save_predictions_csv()
         self._save_model_artifacts()
+        self._log_experiment()
 
         print("\n" + "=" * 70)
         print("  PIPELINE COMPLETE")
@@ -223,6 +226,37 @@ class Pipeline:
                         f"{dropout_prob:.4f},{at_risk}\n")
 
         print(f"\n  Predictions CSV saved to: {csv_path}")
+
+    def _log_experiment(self):
+        """Append this run's hyperparameters, CV score, and metrics to experiment_log.json."""
+        log_path = os.path.join(self.output_dir, "experiment_log.json")
+        existing = []
+        if os.path.exists(log_path):
+            with open(log_path, "r") as f:
+                existing = json.load(f)
+
+        entry = {
+            "run_id": datetime.now().strftime("%Y%m%d_%H%M%S"),
+            "random_seed": RANDOM_SEED,
+            "best_params": self.model.__dict__.get("__params", {
+                "n_estimators": self.model.n_estimators,
+                "max_depth": self.model.max_depth,
+                "learning_rate": self.model.learning_rate,
+                "min_samples_split": self.model.min_samples_split,
+                "subsample": self.model.subsample,
+            }),
+            "metrics": {
+                "accuracy": round(self.metrics.accuracy, 4),
+                "auc_roc": round(self.metrics.auc_roc, 4),
+                "dropout_recall": round(self.metrics.get_dropout_recall(), 4),
+                "dropout_f1": round(self.metrics.f1_per_class.get("Dropout", 0), 4),
+            },
+            "model_artefact": os.path.join(self.output_dir, "model.pkl"),
+        }
+        existing.append(entry)
+        with open(log_path, "w") as f:
+            json.dump(existing, f, indent=2)
+        print(f"  Experiment logged to: {log_path}")
 
     def _save_model_artifacts(self):
         """Persist the trained model and encoder so predict.py can reuse them
