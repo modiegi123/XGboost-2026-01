@@ -133,66 +133,102 @@ class Dashboard(tk.Tk):
         self._cm_frame.pack(fill="x", padx=15, pady=(0, 10))
 
     # ------------------------------------------------- tab: early warning
-    _FLAGS = [
-        ("Debtor",                                lambda v: float(v) == 1,   "Has outstanding debt"),
-        ("Tuition fees up to date",               lambda v: float(v) == 0,   "Tuition fees not paid"),
-        ("Scholarship holder",                    lambda v: float(v) == 0,   "No scholarship"),
-        ("Curricular units 1st sem (approved)",   lambda v: float(v) < 3,    "Passed fewer than 3 units in semester 1"),
-        ("Curricular units 1st sem (grade)",      lambda v: float(v) < 10,   "Average grade below 10 in semester 1"),
-        ("Curricular units 2nd sem (approved)",   lambda v: float(v) < 3,    "Passed fewer than 3 units in semester 2"),
-        ("Curricular units 2nd sem (grade)",      lambda v: float(v) < 10,   "Average grade below 10 in semester 2"),
-        ("Curricular units 1st sem (enrolled)",   lambda v: float(v) == 0,   "Not enrolled in any units in semester 1"),
-        ("Curricular units 2nd sem (enrolled)",   lambda v: float(v) == 0,   "Not enrolled in any units in semester 2"),
-        ("Age at enrollment",                     lambda v: float(v) > 30,   "Enrolled at age over 30"),
+    _FLAGS_ENROLLMENT = [
+        ("Debtor",                  lambda v: float(v) == 1,  "Has outstanding debt"),
+        ("Tuition fees up to date", lambda v: float(v) == 0,  "Tuition fees not paid"),
+        ("Scholarship holder",      lambda v: float(v) == 0,  "No scholarship"),
+        ("Age at enrollment",       lambda v: float(v) > 30,  "Enrolled at age over 30"),
+        ("Displaced",               lambda v: float(v) == 1,  "Displaced student"),
+        ("Debtor",                  lambda v: float(v) == 1,  "Has outstanding debt"),
+    ]
+    _FLAGS_SEMESTER1 = _FLAGS_ENROLLMENT + [
+        ("Curricular units 1st sem (enrolled)",  lambda v: float(v) == 0, "Not enrolled in any units in semester 1"),
+        ("Curricular units 1st sem (approved)",  lambda v: float(v) < 3,  "Passed fewer than 3 units in semester 1"),
+        ("Curricular units 1st sem (grade)",     lambda v: float(v) < 10, "Average grade below 10 in semester 1"),
+    ]
+    _FLAGS_FULL = _FLAGS_SEMESTER1 + [
+        ("Curricular units 2nd sem (enrolled)",  lambda v: float(v) == 0, "Not enrolled in any units in semester 2"),
+        ("Curricular units 2nd sem (approved)",  lambda v: float(v) < 3,  "Passed fewer than 3 units in semester 2"),
+        ("Curricular units 2nd sem (grade)",     lambda v: float(v) < 10, "Average grade below 10 in semester 2"),
     ]
 
     def _build_early_warning_tab(self):
         self._ew_student_features = {}
-        tk.Label(self._tab_early, text="Early Warning — At-Risk Students", bg=WHITE,
-                 fg=LIME_GREEN_DARK, font=("Segoe UI", 13, "bold")).pack(pady=(16, 2))
-        tk.Label(self._tab_early, text="Double-click a student to view full details and add an intervention.",
-                 bg=WHITE, fg=TEXT_DARK, font=("Segoe UI", 9, "italic")).pack(pady=(0, 6))
-        ttk.Button(self._tab_early, text="Load At-Risk Students", style="Lime.TButton",
-                   command=self._load_early_warning).pack(pady=(0, 8))
-        cols = ("student_id", "dropout_prob", "warning_flags")
-        self._ew_tree = ttk.Treeview(self._tab_early, columns=cols, show="headings")
-        for col, lbl, w in zip(cols, ("Student ID", "Dropout Prob", "Warning Flags"), (100, 100, 600)):
-            self._ew_tree.heading(col, text=lbl)
-            self._ew_tree.column(col, anchor="w", width=w)
-        sb = ttk.Scrollbar(self._tab_early, orient="vertical", command=self._ew_tree.yview)
-        self._ew_tree.configure(yscrollcommand=sb.set)
-        self._ew_tree.pack(side="left", fill="both", expand=True, padx=(10, 0), pady=4)
-        sb.pack(side="right", fill="y", pady=4)
-        self._ew_tree.bind("<Double-1>", self._on_intervene)
+        # sub-notebook inside the early warning tab
+        sub_nb = ttk.Notebook(self._tab_early)
+        sub_nb.pack(fill="both", expand=True, padx=6, pady=6)
 
-    def _load_early_warning(self):
+        self._tab_ew_enrol = tk.Frame(sub_nb, bg=WHITE)
+        self._tab_ew_sem1  = tk.Frame(sub_nb, bg=WHITE)
+        self._tab_ew_full  = tk.Frame(sub_nb, bg=WHITE)
+        sub_nb.add(self._tab_ew_enrol, text="  At Enrollment  ")
+        sub_nb.add(self._tab_ew_sem1,  text="  After Semester 1  ")
+        sub_nb.add(self._tab_ew_full,  text="  Full Assessment  ")
+
+        self._ew_tree_enrol = self._build_ew_subtab(
+            self._tab_ew_enrol,
+            "Flagged at enrollment — before classes start.",
+            lambda: self._load_ew("predictions_enrollment.csv", self._FLAGS_ENROLLMENT, self._ew_tree_enrol))
+        self._ew_tree_sem1 = self._build_ew_subtab(
+            self._tab_ew_sem1,
+            "Flagged after semester 1 — before semester 2 exams.",
+            lambda: self._load_ew("predictions_semester1.csv", self._FLAGS_SEMESTER1, self._ew_tree_sem1))
+        self._ew_tree_full = self._build_ew_subtab(
+            self._tab_ew_full,
+            "Flagged using all available data — full risk assessment.",
+            lambda: self._load_ew("predictions.csv", self._FLAGS_FULL, self._ew_tree_full))
+
+    def _build_ew_subtab(self, parent, description, load_cmd):
+        tk.Label(parent, text=description, bg=WHITE, fg=TEXT_DARK,
+                 font=("Segoe UI", 9, "italic")).pack(pady=(10, 4))
+        tk.Label(parent, text="Double-click a student to add an intervention.",
+                 bg=WHITE, fg=TEXT_DARK, font=("Segoe UI", 9, "italic")).pack(pady=(0, 4))
+        ttk.Button(parent, text="Load At-Risk Students", style="Lime.TButton",
+                   command=load_cmd).pack(pady=(0, 6))
+        cols = ("student_id", "dropout_prob", "warning_flags")
+        tree = ttk.Treeview(parent, columns=cols, show="headings")
+        for col, lbl, w in zip(cols, ("Student ID", "Dropout Prob", "Warning Flags"), (100, 100, 580)):
+            tree.heading(col, text=lbl)
+            tree.column(col, anchor="w", width=w)
+        sb = ttk.Scrollbar(parent, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=sb.set)
+        tree.pack(side="left", fill="both", expand=True, padx=(10, 0), pady=4)
+        sb.pack(side="right", fill="y", pady=4)
+        tree.bind("<Double-1>", self._on_intervene)
+        return tree
+
+    def _load_ew(self, predictions_file, flags, tree):
         import csv
-        predictions_csv = os.path.join(BASE_DIR, "output", "predictions.csv")
+        predictions_csv = os.path.join(BASE_DIR, "output", predictions_file)
         dataset_csv     = os.path.join(BASE_DIR, DATA_PATH)
         if not os.path.exists(predictions_csv):
             messagebox.showerror("No predictions", "Train the model first."); return
-        self._ew_student_features = {}
-        with open(dataset_csv, encoding="utf-8-sig") as f:
-            first = f.readline(); f.seek(0)
-            delim = ";" if ";" in first and "," not in first else ","
-            for i, row in enumerate(csv.DictReader(f, delimiter=delim)):
-                self._ew_student_features[f"S{i:05d}"] = {
-                    k: v for k, v in row.items() if k != "Target" and v not in ("", None)}
-        self._ew_tree.delete(*self._ew_tree.get_children())
+        if not self._ew_student_features:
+            with open(dataset_csv, encoding="utf-8-sig") as f:
+                first = f.readline(); f.seek(0)
+                delim = ";" if ";" in first and "," not in first else ","
+                for i, row in enumerate(csv.DictReader(f, delimiter=delim)):
+                    self._ew_student_features[f"S{i:05d}"] = {
+                        k: v for k, v in row.items() if k != "Target" and v not in ("", None)}
+        tree.delete(*tree.get_children())
         with open(predictions_csv, encoding="utf-8") as f:
             for row in csv.DictReader(f):
                 if row["at_risk"].lower() != "true": continue
                 feats = self._ew_student_features.get(row["student_id"], {})
-                flags = [label for col, check, label in self._FLAGS
-                         if col in feats and check(feats[col])]
-                self._ew_tree.insert("", "end", values=(
+                seen, flag_labels = set(), []
+                for col, check, label in flags:
+                    if label not in seen and col in feats and check(feats[col]):
+                        flag_labels.append(label)
+                        seen.add(label)
+                tree.insert("", "end", values=(
                     row["student_id"], row["dropout_probability"],
-                    "  |  ".join(flags) if flags else "No specific flags"))
+                    "  |  ".join(flag_labels) if flag_labels else "No specific flags"))
 
-    def _on_intervene(self, _event):
-        item = self._ew_tree.focus()
+    def _on_intervene(self, event):
+        tree = event.widget
+        item = tree.focus()
         if not item: return
-        sid, prob, flags = self._ew_tree.item(item, "values")
+        sid, prob, flags = tree.item(item, "values")
         popup = tk.Toplevel(self, bg=WHITE)
         popup.title(f"Intervene — {sid}")
         popup.geometry("480x380")
@@ -222,7 +258,7 @@ class Dashboard(tk.Tk):
                 w = csv.writer(f)
                 if write_header: w.writerow(["student_id", "dropout_probability", "warning_flags", "intervention_note", "timestamp"])
                 w.writerow([sid, prob, flags, text, datetime.now().strftime("%Y-%m-%d %H:%M")])
-            self._ew_tree.item(item, values=(f"✓ {sid}", prob, flags))
+            tree.item(item, values=(f"✓ {sid}", prob, flags))
             self._load_interventions()
             popup.destroy()
         ttk.Button(popup, text="Save Intervention", style="Lime.TButton", command=save).pack(pady=(0, 10))
@@ -280,6 +316,9 @@ class Dashboard(tk.Tk):
                            self._read_predictions_csv(predictions_csv))
 
             self.after(200, self._populate_metrics, pipeline.metrics)
+            self.after(400, self._load_ew, "predictions_enrollment.csv", self._FLAGS_ENROLLMENT, self._ew_tree_enrol)
+            self.after(600, self._load_ew, "predictions_semester1.csv", self._FLAGS_SEMESTER1, self._ew_tree_sem1)
+            self.after(800, self._load_ew, "predictions.csv", self._FLAGS_FULL, self._ew_tree_full)
             self.after(200, self.status_var.set, "Training complete.")
             self.after(200, self.progress.stop)
         except Exception as exc:

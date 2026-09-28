@@ -142,5 +142,41 @@
       "dropout_f1": 0.7747
     },
     "model_artefact": "C:\\XGboost\\XGboost-2026-01\\output\\model.pkl"
+  },
+  {
+    "run_id": "20260928_171219",
+    "random_seed": 42,
+    "best_params": {
+      "n_estimators": 100,
+      "max_depth": 3,
+      "learning_rate": 0.1,
+      "min_samples_split": 5,
+      "subsample": 0.8
+    },
+    "metrics": {
+      "accuracy": 0.7746,
+      "auc_roc": 0.8909,
+      "dropout_recall": 0.7324,
+      "dropout_f1": 0.7747
+    },
+    "model_artefact": "C:\\XGboost\\XGboost-2026-01\\output\\model.pkl"
+  },
+  {
+    "run_id": "20260928_174010",
+    "random_seed": 42,
+    "best_params": {
+      "n_estimators": 100,
+      "max_depth": 3,
+      "learning_rate": 0.1,
+      "min_samples_split": 5,
+      "subsample": 0.8
+    },
+    "metrics": {
+      "accuracy": 0.7746,
+      "auc_roc": 0.8909,
+      "dropout_recall": 0.7324,
+      "dropout_f1": 0.7747
+    },
+    "model_artefact": "C:\\XGboost\\XGboost-2026-01\\output\\model.pkl"
   }
 ]

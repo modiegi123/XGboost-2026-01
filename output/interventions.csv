@@ -1,2 +1,5 @@
 student_id,dropout_probability,warning_flags,intervention_note,timestamp
 S03485,0.5260,No scholarship  |  Enrolled at age over 30,bnjjii,2026-09-28 16:15
+S00496,0.6071,No scholarship,"no scholarship,assist",2026-09-28 18:40
+S01202,0.8668,Has outstanding debt  |  Tuition fees not paid  |  No scholarship,refer to src funding office,2026-09-28 18:42
+S00438,0.9769,No scholarship  |  Displaced student  |  Passed fewer than 3 units in semester 1  |  Average grade below 10 in semester 1  |  Passed fewer than 3 units in semester 2  |  Average grade below 10 in semester 2,refer to tutors,2026-09-28 18:43

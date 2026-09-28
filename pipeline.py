@@ -313,6 +313,16 @@ class Pipeline:
         print(f"  (Full model dropout recall:      {self.metrics.get_dropout_recall():.4f})")
 
         # Save
+        # Save enrollment predictions CSV
+        enrol_csv = os.path.join(self.output_dir, "predictions_enrollment.csv")
+        dropout_idx = TARGET_CLASSES.index("Dropout")
+        with open(enrol_csv, "w") as f:
+            f.write("student_id,actual_outcome,predicted_outcome,dropout_probability,at_risk\n")
+            for student, pred, proba in zip(self.test_students, enrol_preds, enrol_proba):
+                dp = proba[dropout_idx]
+                f.write(f"{student.student_id},{student.outcome},{pred},{dp:.4f},{pred == 'Dropout'}\n")
+        print(f"  Enrollment predictions saved to: {enrol_csv}")
+
         model_path = os.path.join(self.output_dir, "model_enrollment.pkl")
         with open(model_path, "wb") as f:
             pickle.dump({
@@ -367,6 +377,16 @@ class Pipeline:
         dropout_recall = sem1_metrics.get_dropout_recall()
         print(f"  Semester 1 model dropout recall:  {dropout_recall:.4f}")
         print(f"  (Full model dropout recall:        {self.metrics.get_dropout_recall():.4f})")
+
+        # Save semester 1 predictions CSV
+        sem1_csv = os.path.join(self.output_dir, "predictions_semester1.csv")
+        dropout_idx = TARGET_CLASSES.index("Dropout")
+        with open(sem1_csv, "w") as f:
+            f.write("student_id,actual_outcome,predicted_outcome,dropout_probability,at_risk\n")
+            for student, pred, proba in zip(self.test_students, sem1_preds, sem1_proba):
+                dp = proba[dropout_idx]
+                f.write(f"{student.student_id},{student.outcome},{pred},{dp:.4f},{pred == 'Dropout'}\n")
+        print(f"  Semester 1 predictions saved to: {sem1_csv}")
 
         model_path = os.path.join(self.output_dir, "model_semester1.pkl")
         with open(model_path, "wb") as f:
