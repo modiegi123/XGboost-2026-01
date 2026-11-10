@@ -115,6 +115,61 @@ def load_experiment_log():
     return log[-1] if log else None
 
 
+# Flags mirror dashboard.py's early-warning logic, adapted for the web UI.
+_FLAGS_ENROLLMENT = [
+    ("Debtor", lambda v: float(v) == 1, "Has outstanding debt"),
+    ("Tuition fees up to date", lambda v: float(v) == 0, "Tuition fees not paid"),
+    ("Scholarship holder", lambda v: float(v) == 0, "No scholarship"),
+    ("Age at enrollment", lambda v: float(v) > 30, "Enrolled at age over 30"),
+    ("Displaced", lambda v: float(v) == 1, "Displaced student"),
+]
+_FLAGS_SEMESTER1 = _FLAGS_ENROLLMENT + [
+    ("Curricular units 1st sem (enrolled)", lambda v: float(v) == 0, "Not enrolled in any units in semester 1"),
+    ("Curricular units 1st sem (approved)", lambda v: float(v) < 3, "Passed fewer than 3 units in semester 1"),
+    ("Curricular units 1st sem (grade)", lambda v: float(v) < 10, "Average grade below 10 in semester 1"),
+]
+_FLAGS_FULL = _FLAGS_SEMESTER1 + [
+    ("Curricular units 2nd sem (enrolled)", lambda v: float(v) == 0, "Not enrolled in any units in semester 2"),
+    ("Curricular units 2nd sem (approved)", lambda v: float(v) < 3, "Passed fewer than 3 units in semester 2"),
+    ("Curricular units 2nd sem (grade)", lambda v: float(v) < 10, "Average grade below 10 in semester 2"),
+]
+_FLAGS_BY_MODE = {"enrollment": _FLAGS_ENROLLMENT, "semester1": _FLAGS_SEMESTER1, "full": _FLAGS_FULL}
+
+
+@st.cache_data
+def load_feature_lookup():
+    """student_id ('S00000', ...) -> raw feature dict, in dataset row order."""
+    rows = load_sample_rows()
+    return {f"S{i:05d}": row for i, row in enumerate(rows)}
+
+
+@st.cache_data
+def load_at_risk_students(predictions_csv_rel, mode_key):
+    path = os.path.join(BASE_DIR, predictions_csv_rel)
+    if not os.path.exists(path):
+        return []
+    lookup = load_feature_lookup()
+    flags = _FLAGS_BY_MODE[mode_key]
+
+    flagged = []
+    with open(path, encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            if row["at_risk"].lower() != "true":
+                continue
+            feats = lookup.get(row["student_id"], {})
+            seen, flag_labels = set(), []
+            for col, check, label in flags:
+                if label not in seen and col in feats and check(feats[col]):
+                    flag_labels.append(label)
+                    seen.add(label)
+            flagged.append({
+                "student_id": row["student_id"],
+                "dropout_probability": float(row["dropout_probability"]),
+                "flags": flag_labels or ["No specific flags"],
+            })
+    return sorted(flagged, key=lambda r: r["dropout_probability"], reverse=True)
+
+
 st.title("🎓 Student Dropout Risk Predictor")
 st.caption(
     "A from-scratch XGBoost (gradient boosted trees) classifier for predicting student "
@@ -122,7 +177,9 @@ st.caption(
     "trees, SMOTE class balancing, and evaluation metrics are all implemented in plain Python."
 )
 
-tab_predict, tab_perf, tab_about = st.tabs(["🔮 Predict", "📊 Model Performance", "ℹ️ About"])
+tab_predict, tab_warning, tab_perf, tab_about = st.tabs(
+    ["🔮 Predict", "⚠️ Early Warning & Interventions", "📊 Model Performance", "ℹ️ About"]
+)
 
 # --------------------------------------------------------------------------- Predict
 with tab_predict:
@@ -187,6 +244,61 @@ with tab_predict:
             )
     else:
         st.info("Pick random students or upload a CSV to see predictions.")
+
+# --------------------------------------------------------------------------- Early Warning & Interventions
+with tab_warning:
+    st.caption(
+        "Students from the held-out test set flagged as at-risk of dropping out, with the "
+        "specific warning signs that triggered the flag — so an advisor knows *why*, not just *who*."
+    )
+    mode_label_ew = st.selectbox("Assessment point", list(MODES.keys()), index=0, key="ew_mode")
+    mode_ew = MODES[mode_label_ew]
+
+    flagged = load_at_risk_students(mode_ew["predictions_csv"], mode_ew["key"])
+
+    if not flagged:
+        st.info("No flagged students found for this assessment point.")
+    else:
+        st.write(f"**{len(flagged)} students flagged** out of the held-out test set.")
+        flagged_table = [
+            {
+                "Student ID": r["student_id"],
+                "Dropout probability": round(r["dropout_probability"], 4),
+                "Warning flags": "  |  ".join(r["flags"]),
+            }
+            for r in flagged
+        ]
+        st.dataframe(flagged_table, width='stretch', hide_index=True)
+
+        st.subheader("Log an intervention")
+        student_ids = [r["student_id"] for r in flagged]
+        picked = st.selectbox("Student", student_ids, key="intervene_student")
+        picked_record = next(r for r in flagged if r["student_id"] == picked)
+        st.caption("Flags: " + "  |  ".join(picked_record["flags"]))
+
+        note = st.text_area("Intervention note", placeholder="e.g. Scheduled meeting with academic advisor on...")
+        if st.button("💾 Save intervention", type="primary"):
+            if note.strip():
+                st.session_state.setdefault("interventions", []).append({
+                    "Student ID": picked,
+                    "Dropout probability": round(picked_record["dropout_probability"], 4),
+                    "Warning flags": "  |  ".join(picked_record["flags"]),
+                    "Note": note.strip(),
+                })
+                st.success(f"Intervention logged for {picked}.")
+            else:
+                st.warning("Enter a note before saving.")
+
+        st.subheader("Intervention history")
+        st.caption(
+            "Kept for this browser session only — this is a shared public demo, so notes aren't "
+            "written to permanent storage (no cross-visitor mix-ups)."
+        )
+        history = st.session_state.get("interventions", [])
+        if history:
+            st.dataframe(list(reversed(history)), width='stretch', hide_index=True)
+        else:
+            st.info("No interventions logged yet this session.")
 
 # --------------------------------------------------------------------------- Model Performance
 with tab_perf:
