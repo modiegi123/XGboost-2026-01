@@ -393,44 +393,58 @@ with tab_warning:
     if not flagged:
         st.info("No flagged students found for this assessment point.")
     else:
-        st.write(f"**{len(flagged)} students flagged** out of the held-out test set.")
+        st.write(f"**{len(flagged)} students flagged** out of the held-out test set. "
+                 "Click a row to select that student.")
 
-        cards_html = "".join(
-            f"""
-            <div class="student-card">
-                <div class="row">
-                    <span class="name">{html.escape(r['student_id'])}</span>
-                    <span style="color:{COLOR_CRITICAL};font-weight:700;">
-                        {r['dropout_probability']:.1%} dropout risk
-                    </span>
-                </div>
-                {probability_bar(r['dropout_probability'], COLOR_CRITICAL)}
-                <div style="margin-top:0.5rem;">{flag_pills(r['flags'])}</div>
-            </div>
-            """
+        flagged_df = pd.DataFrame([
+            {
+                "Student ID": r["student_id"],
+                "Dropout probability": r["dropout_probability"] * 100,
+                "Warning flags": "  |  ".join(r["flags"]),
+            }
             for r in flagged
+        ])
+        event = st.dataframe(
+            flagged_df,
+            width='stretch',
+            hide_index=True,
+            height=420,
+            on_select="rerun",
+            selection_mode="single-row",
+            key=f"ew_table_{mode_ew['key']}",
+            column_config={
+                "Dropout probability": st.column_config.ProgressColumn(
+                    "Dropout probability", format="%.1f%%", min_value=0.0, max_value=100.0
+                ),
+            },
         )
-        with st.container(height=420):
-            st.markdown(cards_html, unsafe_allow_html=True)
+
+        selected_rows = event.selection.rows if event and event.selection else []
 
         st.subheader("Log an intervention")
-        student_ids = [r["student_id"] for r in flagged]
-        picked = st.selectbox("Student", student_ids, key="intervene_student")
-        picked_record = next(r for r in flagged if r["student_id"] == picked)
-        st.caption("Flags: " + "  |  ".join(picked_record["flags"]))
+        if not selected_rows:
+            st.info("Select a student row above to log an intervention.")
+            picked_record = None
+        else:
+            picked_record = flagged[selected_rows[0]]
+            picked = picked_record["student_id"]
+            st.markdown(
+                f"**{html.escape(picked)}** — {picked_record['dropout_probability']:.1%} dropout risk",
+            )
+            st.caption("Flags: " + "  |  ".join(picked_record["flags"]))
 
-        note = st.text_area("Intervention note", placeholder="e.g. Scheduled meeting with academic advisor on...")
-        if st.button("💾 Save intervention", type="primary"):
-            if note.strip():
-                st.session_state.setdefault("interventions", []).append({
-                    "Student ID": picked,
-                    "Dropout probability": round(picked_record["dropout_probability"], 4),
-                    "Warning flags": "  |  ".join(picked_record["flags"]),
-                    "Note": note.strip(),
-                })
-                st.success(f"Intervention logged for {picked}.")
-            else:
-                st.warning("Enter a note before saving.")
+            note = st.text_area("Intervention note", placeholder="e.g. Scheduled meeting with academic advisor on...")
+            if st.button("💾 Save intervention", type="primary"):
+                if note.strip():
+                    st.session_state.setdefault("interventions", []).append({
+                        "Student ID": picked,
+                        "Dropout probability": round(picked_record["dropout_probability"], 4),
+                        "Warning flags": "  |  ".join(picked_record["flags"]),
+                        "Note": note.strip(),
+                    })
+                    st.success(f"Intervention logged for {picked}.")
+                else:
+                    st.warning("Enter a note before saving.")
 
         st.subheader("Intervention history")
         st.caption(
