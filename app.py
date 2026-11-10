@@ -6,13 +6,108 @@ boosting algorithm, decision trees, SMOTE balancing, and evaluation metrics are
 all implemented in plain Python; this file just adds the web interface around it.
 """
 import csv
+import html
 import io
 import json
 import os
 import random
 import sys
 
+import altair as alt
+import pandas as pd
 import streamlit as st
+
+# Status palette — fixed roles, never reused as generic series colors.
+COLOR_CRITICAL = "#d03b3b"   # Dropout / at risk
+COLOR_WARNING = "#9c6b00"    # Enrolled (on amber chip background)
+COLOR_WARNING_BG = "#fab219"
+COLOR_GOOD = "#0ca30c"       # Graduate / on track
+COLOR_SEQUENTIAL = "#2a78d6"  # magnitude encodings (feature importance, etc.)
+
+OUTCOME_STYLE = {
+    "Dropout": {"icon": "⚠️", "fg": COLOR_CRITICAL, "bg": "rgba(208,59,59,0.12)"},
+    "Enrolled": {"icon": "📘", "fg": COLOR_WARNING, "bg": "rgba(250,178,25,0.18)"},
+    "Graduate": {"icon": "🎓", "fg": COLOR_GOOD, "bg": "rgba(12,163,12,0.12)"},
+}
+AT_RISK_STYLE = {
+    True: {"icon": "⚠️", "label": "At risk", "fg": COLOR_CRITICAL, "bg": "rgba(208,59,59,0.12)"},
+    False: {"icon": "✓", "label": "On track", "fg": COLOR_GOOD, "bg": "rgba(12,163,12,0.12)"},
+}
+
+
+def inject_css():
+    st.markdown(
+        """
+        <style>
+        .hero {
+            padding: 1.5rem 1.75rem;
+            border-radius: 16px;
+            background: linear-gradient(135deg, rgba(42,120,214,0.10), rgba(12,163,12,0.06));
+            border: 1px solid rgba(11,11,11,0.08);
+            margin-bottom: 1.25rem;
+        }
+        .hero h1 { margin: 0 0 0.35rem 0; }
+        .hero p { margin: 0; color: #52514e; }
+
+        .badge {
+            display: inline-flex; align-items: center; gap: 0.35rem;
+            padding: 0.2rem 0.65rem; border-radius: 999px;
+            font-size: 0.82rem; font-weight: 600; white-space: nowrap;
+        }
+        .pill {
+            display: inline-block; padding: 0.1rem 0.55rem; border-radius: 999px;
+            font-size: 0.76rem; font-weight: 500; margin: 0.12rem 0.25rem 0.12rem 0;
+            background: rgba(11,11,11,0.06); color: #52514e;
+        }
+        .student-card {
+            border: 1px solid rgba(11,11,11,0.08);
+            border-radius: 12px;
+            padding: 0.9rem 1.1rem;
+            margin-bottom: 0.6rem;
+            background: #fcfcfb;
+        }
+        .student-card .row {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 0.75rem; flex-wrap: wrap;
+        }
+        .student-card .name { font-weight: 700; font-size: 1.0rem; }
+        .prob-track {
+            height: 8px; border-radius: 999px; background: rgba(11,11,11,0.08);
+            margin-top: 0.5rem; overflow: hidden;
+        }
+        .prob-fill { height: 100%; border-radius: 999px; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def outcome_badge(outcome):
+    style = OUTCOME_STYLE.get(outcome, {"icon": "•", "fg": "#52514e", "bg": "rgba(11,11,11,0.06)"})
+    return (
+        f'<span class="badge" style="color:{style["fg"]};background:{style["bg"]}">'
+        f'{style["icon"]} {html.escape(outcome)}</span>'
+    )
+
+
+def at_risk_badge(at_risk):
+    style = AT_RISK_STYLE[bool(at_risk)]
+    return (
+        f'<span class="badge" style="color:{style["fg"]};background:{style["bg"]}">'
+        f'{style["icon"]} {style["label"]}</span>'
+    )
+
+
+def probability_bar(prob, color):
+    pct = max(0.0, min(1.0, prob)) * 100
+    return (
+        f'<div class="prob-track"><div class="prob-fill" '
+        f'style="width:{pct:.1f}%;background:{color}"></div></div>'
+    )
+
+
+def flag_pills(flags):
+    return "".join(f'<span class="pill">{html.escape(f)}</span>' for f in flags)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -170,11 +265,19 @@ def load_at_risk_students(predictions_csv_rel, mode_key):
     return sorted(flagged, key=lambda r: r["dropout_probability"], reverse=True)
 
 
-st.title("🎓 Student Dropout Risk Predictor")
-st.caption(
-    "A from-scratch XGBoost (gradient boosted trees) classifier for predicting student "
-    "dropout risk. No scikit-learn, no `xgboost` package — the boosting algorithm, decision "
-    "trees, SMOTE class balancing, and evaluation metrics are all implemented in plain Python."
+inject_css()
+
+st.markdown(
+    """
+    <div class="hero">
+        <h1>🎓 Student Dropout Risk Predictor</h1>
+        <p>A from-scratch XGBoost (gradient boosted trees) classifier for predicting student
+        dropout risk — no scikit-learn, no <code>xgboost</code> package. The boosting algorithm,
+        decision trees, SMOTE class balancing, and evaluation metrics are all implemented in
+        plain Python.</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 
 tab_predict, tab_warning, tab_perf, tab_about = st.tabs(
@@ -223,25 +326,56 @@ with tab_predict:
                 "Try the sample students, or check your CSV's columns."
             )
         else:
-            table = [
-                {
-                    "Student": label,
-                    "Predicted outcome": r["predicted_outcome"],
-                    "Dropout probability": round(r["dropout_probability"], 4),
-                    "At risk": "⚠️ Yes" if r["at_risk"] else "No",
-                }
-                for label, r in zip(labels, results)
-            ]
-            st.dataframe(table, width='stretch', hide_index=True)
-
             at_risk_count = sum(1 for r in results if r["at_risk"])
             c1, c2 = st.columns(2)
             c1.metric("Students assessed", len(results))
             c2.metric("Flagged at risk of dropout", at_risk_count)
 
-            st.bar_chart(
-                {label: r["dropout_probability"] for label, r in zip(labels, results)},
+            for label, r in zip(labels, results):
+                outcome_style = OUTCOME_STYLE.get(r["predicted_outcome"], {"fg": COLOR_SEQUENTIAL})
+                st.markdown(
+                    f"""
+                    <div class="student-card">
+                        <div class="row">
+                            <span class="name">{html.escape(label)}</span>
+                            {outcome_badge(r["predicted_outcome"])}
+                            {at_risk_badge(r["at_risk"])}
+                        </div>
+                        <div class="row" style="margin-top:0.3rem;">
+                            <span style="color:#52514e;font-size:0.85rem;">
+                                Dropout probability: <strong>{r['dropout_probability']:.1%}</strong>
+                            </span>
+                        </div>
+                        {probability_bar(r['dropout_probability'], outcome_style['fg'])}
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+            chart_df = pd.DataFrame([
+                {"Student": label, "Dropout probability": r["dropout_probability"],
+                 "Predicted outcome": r["predicted_outcome"]}
+                for label, r in zip(labels, results)
+            ])
+            chart = (
+                alt.Chart(chart_df)
+                .mark_bar(cornerRadiusEnd=4)
+                .encode(
+                    x=alt.X("Dropout probability:Q", axis=alt.Axis(format="%")),
+                    y=alt.Y("Student:N", sort="-x"),
+                    color=alt.Color(
+                        "Predicted outcome:N",
+                        scale=alt.Scale(
+                            domain=["Dropout", "Enrolled", "Graduate"],
+                            range=[COLOR_CRITICAL, COLOR_WARNING_BG, COLOR_GOOD],
+                        ),
+                        legend=alt.Legend(title="Predicted outcome"),
+                    ),
+                    tooltip=["Student", "Predicted outcome",
+                             alt.Tooltip("Dropout probability:Q", format=".1%")],
+                )
             )
+            st.altair_chart(chart, use_container_width=True)
     else:
         st.info("Pick random students or upload a CSV to see predictions.")
 
@@ -260,15 +394,24 @@ with tab_warning:
         st.info("No flagged students found for this assessment point.")
     else:
         st.write(f"**{len(flagged)} students flagged** out of the held-out test set.")
-        flagged_table = [
-            {
-                "Student ID": r["student_id"],
-                "Dropout probability": round(r["dropout_probability"], 4),
-                "Warning flags": "  |  ".join(r["flags"]),
-            }
+
+        cards_html = "".join(
+            f"""
+            <div class="student-card">
+                <div class="row">
+                    <span class="name">{html.escape(r['student_id'])}</span>
+                    <span style="color:{COLOR_CRITICAL};font-weight:700;">
+                        {r['dropout_probability']:.1%} dropout risk
+                    </span>
+                </div>
+                {probability_bar(r['dropout_probability'], COLOR_CRITICAL)}
+                <div style="margin-top:0.5rem;">{flag_pills(r['flags'])}</div>
+            </div>
+            """
             for r in flagged
-        ]
-        st.dataframe(flagged_table, width='stretch', hide_index=True)
+        )
+        with st.container(height=420):
+            st.markdown(cards_html, unsafe_allow_html=True)
 
         st.subheader("Log an intervention")
         student_ids = [r["student_id"] for r in flagged]
@@ -296,7 +439,23 @@ with tab_warning:
         )
         history = st.session_state.get("interventions", [])
         if history:
-            st.dataframe(list(reversed(history)), width='stretch', hide_index=True)
+            for entry in reversed(history):
+                st.markdown(
+                    f"""
+                    <div class="student-card">
+                        <div class="row">
+                            <span class="name">{html.escape(entry['Student ID'])}</span>
+                            <span style="color:{COLOR_CRITICAL};font-weight:700;">
+                                {entry['Dropout probability']:.1%} dropout risk
+                            </span>
+                        </div>
+                        <div style="margin-top:0.35rem;color:#52514e;">
+                            {html.escape(entry['Note'])}
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
         else:
             st.info("No interventions logged yet this session.")
 
@@ -349,7 +508,7 @@ with tab_perf:
     feature_names = artifacts_perf["encoder"].get_feature_names()
     importance = artifacts_perf["model"].get_feature_importance(feature_names)
     top = dict(sorted(importance.items(), key=lambda kv: kv[1], reverse=True)[:10])
-    st.bar_chart(top, horizontal=True)
+    st.bar_chart(top, horizontal=True, color=COLOR_SEQUENTIAL)
 
 # --------------------------------------------------------------------------- About
 with tab_about:
