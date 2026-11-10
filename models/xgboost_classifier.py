@@ -146,23 +146,23 @@ class XGBoostClassifier:
     def __init__(self, n_estimators=100, max_depth=5, learning_rate=0.1,
                  lambda_reg=1.0, min_samples_split=2, subsample=1.0,
                  random_seed=42):
-        self.n_estimators = n_estimators
+        self.n_estimators = n_estimators # Store number of trees to build
         self.max_depth = max_depth
         self.learning_rate = learning_rate
         self.lambda_reg = lambda_reg
-        self.min_samples_split = min_samples_split
+        self.min_samples_split = min_samples_split # Store minimum samples needed to split
         self.subsample = subsample
         self.random_seed = random_seed
         self.trees = {}  # {class_idx: [list of trees]}
         self.classes = []
         self.n_classes = 0
-        self._trained = False
+        self._trained = False # Indicates model is not trained yet
 
     def _softmax(self, raw_scores):
         max_score = max(raw_scores)
         exp_scores = [math.exp(s - max_score) for s in raw_scores]
         total = sum(exp_scores)
-        return [e / total for e in exp_scores]
+        return [e / total for e in exp_scores] # Convert scores to probabilities
 
     def train(self, X, y):
         """Train the gradient boosted model."""
