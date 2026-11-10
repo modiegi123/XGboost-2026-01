@@ -16,6 +16,7 @@ import sys
 import altair as alt
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 # Status palette — fixed roles, never reused as generic series colors.
 COLOR_CRITICAL = "#d03b3b"   # Dropout / at risk
@@ -421,7 +422,18 @@ with tab_warning:
 
         selected_rows = event.selection.rows if event and event.selection else []
 
+        st.markdown('<div id="log-intervention-anchor"></div>', unsafe_allow_html=True)
         st.subheader("Log an intervention")
+        if selected_rows:
+            components.html(
+                """
+                <script>
+                var el = window.parent.document.getElementById('log-intervention-anchor');
+                if (el) { el.scrollIntoView({behavior: 'smooth', block: 'start'}); }
+                </script>
+                """,
+                height=0,
+            )
         if not selected_rows:
             st.info("Select a student row above to log an intervention.")
             picked_record = None
